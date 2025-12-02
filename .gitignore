@@ -1,2 +1,7 @@
 __pycache__/
 *.ipynb_checkpoints/
+config
+.pytest_cache/
+train/
+*.csv
+*.parquet

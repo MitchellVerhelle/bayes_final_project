@@ -1,7 +1,9 @@
+# python caches
 __pycache__/
-*.ipynb_checkpoints/
-config
 .pytest_cache/
-train/
+# jupyter junk
+.ipynb_checkpoints/
+# environment
+config
 *.csv
 *.parquet

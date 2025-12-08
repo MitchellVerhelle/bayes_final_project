@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import matplotlib.pyplot as plt
 import matplotlib.animation as anim
 from matplotlib.patches import Ellipse
+from scipy.stats import gaussian_kde
 
 from models.bayes_model_base import BayesianMovementModel
 from . import tracking_utils, field_plot
@@ -45,6 +46,7 @@ class Artists:
     path_lines: list            # list[(pid, line)]
     cone_patches: dict          # pid -> [Ellipse,...]
     mean_markers: dict          # pid -> [Line2D,...]
+    heatmap_images: dict        # pid -> [AxesImage,...] for heatmaps
     legend_handles: list
 
 # Data prep helpers
@@ -246,6 +248,7 @@ def _init_artists(
     show_cones: bool,
     show_legend: bool,
     horizon: int,
+    show_heatmaps: bool = False,
 ) -> Artists:
     fig, ax = plt.subplots(figsize=(12, 6))
     draw_field(ax)
@@ -336,6 +339,25 @@ def _init_artists(
     if show_legend:
         ax.legend(handles=legend_handles, loc="upper right", framealpha=0.8)
 
+    # heatmaps per player
+    heatmap_images: dict[int, list] = {}
+    if show_heatmaps and data.use_bayesian_cones and data.pred_ids:
+        for pid in data.pred_ids:
+            heatmap_list = []
+            for _ in range(horizon):
+                # Create placeholder (will be updated in _update_bayesian_heatmaps)
+                empty_img = ax.imshow(
+                    np.zeros((50, 50)),
+                    extent=[0, 120, 0, 53.3],
+                    alpha=0.0,
+                    origin='lower',
+                    cmap='hot',
+                    aspect='auto',
+                    zorder=3,
+                )
+                heatmap_list.append(empty_img)
+            heatmap_images[pid] = heatmap_list
+    
     return Artists(
         fig=fig,
         ax=ax,
@@ -349,6 +371,7 @@ def _init_artists(
         path_lines=path_lines,
         cone_patches=cone_patches,
         mean_markers=mean_markers,
+        heatmap_images=heatmap_images,
         legend_handles=legend_handles,
     )
 
@@ -368,6 +391,10 @@ def _reset_prediction_artists(artists: Artists):
         for m in artists.mean_markers[pid]:
             m.set_data([], [])
             m.set_alpha(0.0)
+    # clear heatmaps
+    for pid in artists.heatmap_images:
+        for img in artists.heatmap_images[pid]:
+            img.set_alpha(0.0)
 
 # Per-frame update helpers
 def _update_pre_frame(
@@ -575,6 +602,141 @@ def _update_bayesian_cones(
             m.set_alpha(min(alpha + 0.2, 0.9))
 
 
+def _create_heatmap_from_samples(
+    x_samples: np.ndarray,
+    y_samples: np.ndarray,
+    ax: plt.Axes,
+    grid_resolution: int = 50,
+    bandwidth: float = 0.5,
+    alpha: float = 0.4,
+) -> plt.AxesImage:
+    """
+    Create a heatmap from posterior samples using KDE.
+    
+    Args:
+        x_samples: 1D array of x positions
+        y_samples: 1D array of y positions
+        ax: Matplotlib axes to plot on
+        grid_resolution: Number of grid points per dimension
+        bandwidth: KDE bandwidth (in yards)
+        alpha: Transparency of heatmap
+    
+    Returns:
+        AxesImage object for the heatmap
+    """
+    # Filter out invalid samples
+    valid = np.isfinite(x_samples) & np.isfinite(y_samples) & \
+            (x_samples >= 0) & (x_samples <= 120) & \
+            (y_samples >= 0) & (y_samples <= 53.3)
+    
+    if valid.sum() < 10:  # Need at least 10 samples
+        # Return empty image
+        empty_img = ax.imshow(
+            np.zeros((grid_resolution, grid_resolution)),
+            extent=[0, 120, 0, 53.3],
+            alpha=0.0,
+            origin='lower',
+            cmap='hot',
+            aspect='auto',
+        )
+        return empty_img
+    
+    x_valid = x_samples[valid]
+    y_valid = y_samples[valid]
+    
+    # Create grid
+    x_grid = np.linspace(0, 120, grid_resolution)
+    y_grid = np.linspace(0, 53.3, grid_resolution)
+    X_grid, Y_grid = np.meshgrid(x_grid, y_grid)
+    
+    # Compute KDE
+    try:
+        kde = gaussian_kde(np.vstack([x_valid, y_valid]), bw_method=bandwidth)
+        positions = np.vstack([X_grid.ravel(), Y_grid.ravel()])
+        density = kde(positions).reshape(X_grid.shape)
+        
+        # Normalize to [0, 1]
+        density = (density - density.min()) / (density.max() - density.min() + 1e-10)
+    except:
+        # Fallback if KDE fails
+        density = np.zeros_like(X_grid)
+    
+    # Create heatmap image
+    img = ax.imshow(
+        density,
+        extent=[0, 120, 0, 53.3],
+        alpha=alpha,
+        origin='lower',
+        cmap='hot',
+        aspect='auto',
+        interpolation='bilinear',
+        zorder=3,
+    )
+    
+    return img
+
+
+def _update_bayesian_heatmaps(
+    model: BayesianMovementModel,
+    states: list[pd.DataFrame],
+    data: PlayVizData,
+    artists: Artists,
+    bayes_samples: int,
+    horizon: int,
+    heatmap_alpha: float = 0.4,
+    grid_resolution: int = 50,
+    bandwidth: float = 0.5,
+):
+    """Update heatmaps showing probability density of player positions."""
+    if not artists.heatmap_images:
+        return
+    
+    max_h = min(horizon, len(states) - 1)
+    
+    for pid in data.pred_ids:
+        if pid not in artists.heatmap_images:
+            continue
+        
+        for h_step in range(1, max_h + 1):
+            df_h = states[h_step]
+            row_h = df_h[df_h.nfl_id == pid]
+            if row_h.empty:
+                continue
+            
+            x_samps, y_samps = model.posterior_samples_for_rows(
+                row_h,
+                n_samples=bayes_samples,
+                x_col="x",
+                y_col="y",
+                s_col="s",
+                a_col="a",
+                dir_col="dir",
+            )
+            xs = x_samps[:, 0]
+            ys = y_samps[:, 0]
+            
+            # Update or create heatmap
+            if h_step - 1 < len(artists.heatmap_images[pid]):
+                img = artists.heatmap_images[pid][h_step - 1]
+                # Remove old image
+                img.remove()
+            
+            # Create new heatmap
+            img = _create_heatmap_from_samples(
+                xs,
+                ys,
+                artists.ax,
+                grid_resolution=grid_resolution,
+                bandwidth=bandwidth,
+                alpha=heatmap_alpha * (1.0 - (h_step - 1) / max_h),  # Fade with horizon
+            )
+            
+            # Store in list (extend if needed)
+            while len(artists.heatmap_images[pid]) <= h_step - 1:
+                artists.heatmap_images[pid].append(None)
+            artists.heatmap_images[pid][h_step - 1] = img
+
+
 # visualize predictions
 def visualize_predictions(
     model,
@@ -589,6 +751,10 @@ def visualize_predictions(
     show_cones: bool = True,
     show_legend: bool = True,
     cone_pct: float = 0.95,
+    show_heatmaps: bool = False,
+    heatmap_alpha: float = 0.4,
+    heatmap_grid_resolution: int = 50,
+    heatmap_bandwidth: float = 0.5,
 ):
     """
     Animate a play like animate_week_play, plus model predictions AFTER the throw.
@@ -620,6 +786,7 @@ def visualize_predictions(
         show_cones=show_cones,
         show_legend=show_legend,
         horizon=horizon,
+        show_heatmaps=show_heatmaps,
     )
 
     # maintain a predicted_state across post frames
@@ -645,6 +812,7 @@ def visualize_predictions(
             *(line for _, line in artists.path_lines),
             *(ell for pid in artists.cone_patches for ell in artists.cone_patches[pid]),
             *(m for pid in artists.mean_markers for m in artists.mean_markers[pid]),
+            *(img for pid in artists.heatmap_images for img in artists.heatmap_images[pid] if img is not None),
         )
 
     def update(i):
@@ -685,6 +853,25 @@ def visualize_predictions(
                     horizon=horizon,
                     confidence_pct=cone_pct,
                 )
+            
+            # heatmaps
+            if (
+                show_heatmaps
+                and data.use_bayesian_cones
+                and isinstance(model, BayesianMovementModel)
+            ):
+                states = _build_multistep_states(model, predicted_state, horizon=horizon)
+                _update_bayesian_heatmaps(
+                    model,
+                    states,
+                    data,
+                    artists,
+                    bayes_samples=bayes_samples,
+                    horizon=horizon,
+                    heatmap_alpha=heatmap_alpha,
+                    grid_resolution=heatmap_grid_resolution,
+                    bandwidth=heatmap_bandwidth,
+                )
 
             # move prediction base forward one actual frame
             predicted_state = d.copy()
@@ -700,6 +887,7 @@ def visualize_predictions(
             *(line for _, line in artists.path_lines),
             *(ell for pid in artists.cone_patches for ell in artists.cone_patches[pid]),
             *(m for pid in artists.mean_markers for m in artists.mean_markers[pid]),
+            *(img for pid in artists.heatmap_images for img in artists.heatmap_images[pid] if img is not None),
         )
 
     ani = anim.FuncAnimation(

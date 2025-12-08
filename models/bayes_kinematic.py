@@ -50,6 +50,7 @@ from typing import Optional, Tuple
 import numpy as np
 import pandas as pd
 import pymc as pm
+import pymc as pm
 
 from .kinematic import KinematicModel
 from .bayes_model_base import BayesianMovementModel
@@ -76,10 +77,24 @@ class BayesianKinematicModel(BayesianMovementModel):
         tune: int = 1000,
         target_accept: float = 0.9,
         chains: int = 2,
+        # Speedup options
+        max_samples: Optional[int] = None,  # Subsample data for faster training
+        use_vi: bool = False,  # Use Variational Inference instead of MCMC (much faster)
+        vi_n: int = 10000,  # Number of VI iterations if use_vi=True
     ) -> None:
         """
         Fit the Bayesian kinematic model on a step-level dataset.
+        
+        Args:
+            max_samples: If set, randomly subsample this many rows for faster training
+            use_vi: If True, use Variational Inference (ADVI) instead of MCMC (much faster, less accurate)
+            vi_n: Number of iterations for VI if use_vi=True
         """
+        # Subsample data if requested (speedup #1)
+        if max_samples is not None and len(df) > max_samples:
+            print(f"[BayesianKinematicModel] Subsampling from {len(df):,} to {max_samples:,} rows for faster training")
+            df = df.sample(n=max_samples, random_state=42).reset_index(drop=True)
+        
         x = df[x_col].to_numpy(dtype=float)
         y = df[y_col].to_numpy(dtype=float)
         s = df[s_col].to_numpy(dtype=float)
@@ -98,14 +113,26 @@ class BayesianKinematicModel(BayesianMovementModel):
             pm.Normal("x_next", mu=mu_x, sigma=sigma_x, observed=x_next_obs)
             pm.Normal("y_next", mu=mu_y, sigma=sigma_y, observed=y_next_obs)
 
-            trace = pm.sample(
-                draws=draws,
-                tune=tune,
-                target_accept=target_accept,
-                chains=chains,
-                return_inferencedata=True,
-                progressbar=True,
-            )
+            # Speedup #3: Use Variational Inference instead of MCMC
+            if use_vi:
+                print(f"[BayesianKinematicModel] Using Variational Inference (ADVI) with {vi_n} iterations...")
+                approx = pm.fit(
+                    method='advi',
+                    n=vi_n,
+                    progressbar=True,
+                )
+                trace = approx.sample(draws=draws)
+                trace = pm.to_inferencedata(trace)
+            else:
+                # Standard MCMC sampling (slower but more accurate)
+                trace = pm.sample(
+                    draws=draws,
+                    tune=tune,
+                    target_accept=target_accept,
+                    chains=chains,
+                    return_inferencedata=True,
+                    progressbar=True,
+                )
 
         self.model = model
         self.trace = trace

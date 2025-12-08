@@ -8,6 +8,8 @@ from .kinematic_boundary import KinematicBoundaryModel
 
 # bayes models
 from .bayes_kinematic import BayesianKinematicModel
+from .bayes_kinematic_hierarchical import HierarchicalBayesianKinematicModel
+from .bayes_kinematic_hmm import BayesianKinematicHMM
 
 # train and test pipeline
 from .pipeline import (
@@ -26,6 +28,8 @@ __all__ = [
     "KinematicModel",
     "KinematicBoundaryModel",
     "BayesianKinematicModel",
+    "HierarchicalBayesianKinematicModel",
+    "BayesianKinematicHMM",
     "build_step_df",
     "build_step_df_from_input",
     "build_step_df_from_output",

@@ -8,3 +8,4 @@ config
 *.csv
 *.parquet
 requirements.txt
+*.csv

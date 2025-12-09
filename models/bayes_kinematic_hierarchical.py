@@ -58,6 +58,7 @@ import numpy as np
 import pandas as pd
 import pymc as pm
 import pytensor.tensor as pt
+import arviz as az
 
 from .kinematic import KinematicModel
 from .bayes_model_base import BayesianMovementModel
@@ -244,8 +245,22 @@ class HierarchicalBayesianKinematicModel(BayesianMovementModel):
                     n=vi_n,
                     progressbar=True,
                 )
-                trace = approx.sample(draws=draws)
-                trace = pm.to_inferencedata(trace)
+                trace_samples = approx.sample(draws=draws)
+                # Convert to InferenceData format
+                # For VI traces from approx.sample(), it returns a MultiTrace
+                # We need to convert it to InferenceData
+                # Try different conversion methods depending on arviz version
+                try:
+                    # Method 1: convert_to_inference_data (works with MultiTrace)
+                    trace = az.convert_to_inference_data(trace_samples)
+                except (AttributeError, TypeError) as e1:
+                    try:
+                        # Method 2: from_pymc (newer arviz versions)
+                        trace = az.from_pymc(trace_samples)
+                    except AttributeError:
+                        # Method 3: Manual conversion using InferenceData constructor
+                        # trace_samples is a MultiTrace, convert it
+                        trace = az.InferenceData(posterior=trace_samples)
             else:
                 # Standard MCMC sampling (slower but more accurate)
                 trace = pm.sample(

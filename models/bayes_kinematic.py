@@ -50,6 +50,7 @@ from typing import Optional, Tuple
 import numpy as np
 import pandas as pd
 import pymc as pm
+import arviz as az
 import pymc as pm
 
 from .kinematic import KinematicModel
@@ -121,8 +122,18 @@ class BayesianKinematicModel(BayesianMovementModel):
                     n=vi_n,
                     progressbar=True,
                 )
-                trace = approx.sample(draws=draws)
-                trace = pm.to_inferencedata(trace)
+                trace_samples = approx.sample(draws=draws)
+                # Convert to InferenceData format
+                # For VI traces, use convert_to_inference_data
+                try:
+                    trace = az.convert_to_inference_data(trace_samples)
+                except (AttributeError, TypeError):
+                    # Fallback: try from_pymc if available
+                    try:
+                        trace = az.from_pymc(trace_samples)
+                    except AttributeError:
+                        # Last resort: wrap in InferenceData manually
+                        trace = az.convert_to_inference_data(trace_samples, group="posterior")
             else:
                 # Standard MCMC sampling (slower but more accurate)
                 trace = pm.sample(

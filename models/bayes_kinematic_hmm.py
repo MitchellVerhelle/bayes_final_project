@@ -73,11 +73,18 @@ class BayesianKinematicHMM(BayesianMovementModel):
         x_next_col: str = "x_next",
         y_next_col: str = "y_next",
         group_cols: Optional[List[str]] = None,
-        
         draws: int = 1000,
         tune: int = 1000,
         target_accept: float = 0.9,
         chains: int = 2,
+        # Speedup options
+        max_samples: Optional[int] = None,  # Subsample data for faster training
+        use_vi: bool = False,  # Use Variational Inference instead of MCMC (much faster)
+        vi_n: int = 10000,  # Number of VI iterations if use_vi=True
+        # GPU options
+        use_gpu: bool = False,  # Try to use GPU if available
+        # Verbose options
+        verbose: bool = True,  # Print detailed progress information
         **kwargs
     ) -> None:
         """
@@ -86,12 +93,49 @@ class BayesianKinematicHMM(BayesianMovementModel):
         Args:
             group_cols: Columns to group by (e.g., ["game_id", "play_id", "nfl_id"])
                         Each group is treated as a separate sequence
+            max_samples: If set, randomly subsample this many rows for faster training
+            use_vi: If True, use Variational Inference (ADVI) instead of MCMC (much faster, less accurate)
+            vi_n: Number of iterations for VI if use_vi=True
+            use_gpu: If True, try to configure PyTensor to use GPU (requires CUDA)
+            verbose: If True, print detailed progress information
         """
+        if verbose:
+            print(f"[BayesianKinematicHMM] Starting fit with {len(df):,} rows, {self.n_states} states")
+        
+        # GPU configuration (limited benefit for MCMC, but can help with VI)
+        if use_gpu:
+            try:
+                import pytensor
+                # Check if CUDA is available
+                try:
+                    pytensor.config.device = 'cuda'
+                    pytensor.config.floatX = 'float32'  # GPU prefers float32
+                    if verbose:
+                        print(f"[BayesianKinematicHMM] GPU enabled (device: {pytensor.config.device})")
+                except Exception as e:
+                    if verbose:
+                        print(f"[BayesianKinematicHMM] GPU requested but not available: {e}")
+                        print(f"[BayesianKinematicHMM] Falling back to CPU")
+                    use_gpu = False
+            except ImportError:
+                if verbose:
+                    print(f"[BayesianKinematicHMM] GPU requested but pytensor not available for GPU config")
+                use_gpu = False
+        
+        # Subsample data if requested (speedup #1)
+        if max_samples is not None and len(df) > max_samples:
+            if verbose:
+                print(f"[BayesianKinematicHMM] Subsampling from {len(df):,} to {max_samples:,} rows for faster training")
+            df = df.sample(n=max_samples, random_state=42).reset_index(drop=True)
+        
         if group_cols is None:
             group_cols = ["game_id", "play_id", "nfl_id"]
 
         # Sort by group columns and frame_id to ensure sequences are ordered
         df_sorted = df.sort_values(group_cols + ["frame_id"]).copy()
+        
+        if verbose:
+            print(f"[BayesianKinematicHMM] Data sorted, building sequences...")
 
         x = df_sorted[x_col].to_numpy(dtype=float)
         y = df_sorted[y_col].to_numpy(dtype=float)
@@ -103,6 +147,8 @@ class BayesianKinematicHMM(BayesianMovementModel):
         y_next_obs = df_sorted[y_next_col].to_numpy(dtype=float)
 
         # Compute kinematic predictions
+        if verbose:
+            print(f"[BayesianKinematicHMM] Computing kinematic predictions...")
         mu_x_base, mu_y_base = self.base._step_array(x, y, s, a, d)
 
         # Build sequence groups
@@ -111,28 +157,39 @@ class BayesianKinematicHMM(BayesianMovementModel):
             group_sizes = groups.size().values
             group_starts = np.concatenate([[0], np.cumsum(group_sizes[:-1])])
             n_sequences = len(groups)
+            if verbose:
+                print(f"[BayesianKinematicHMM] Found {n_sequences} sequences (avg length: {group_sizes.mean():.1f})")
         else:
             # Single sequence
             group_sizes = np.array([len(df_sorted)])
             group_starts = np.array([0])
             n_sequences = 1
+            if verbose:
+                print(f"[BayesianKinematicHMM] Single sequence with {len(df_sorted)} observations")
 
-        with pm.Model() as model:
-            # State-specific noise scales
-            sigma_x_state = pm.HalfNormal("sigma_x_state", sigma=1.0, shape=self.n_states)
-            sigma_y_state = pm.HalfNormal("sigma_y_state", sigma=1.0, shape=self.n_states)
+        if verbose:
+            print(f"[BayesianKinematicHMM] Building PyMC model with {self.n_states} states: {self.state_names}...")
+        
+        try:
+            with pm.Model() as model:
+                # State-specific noise scales
+                sigma_x_state = pm.HalfNormal("sigma_x_state", sigma=1.0, shape=self.n_states)
+                sigma_y_state = pm.HalfNormal("sigma_y_state", sigma=1.0, shape=self.n_states)
 
-            # State-specific biases (allow different regimes to have different offsets)
-            bias_x_state = pm.Normal("bias_x_state", mu=0.0, sigma=0.3, shape=self.n_states)
-            bias_y_state = pm.Normal("bias_y_state", mu=0.0, sigma=0.3, shape=self.n_states)
+                # State-specific biases (allow different regimes to have different offsets)
+                bias_x_state = pm.Normal("bias_x_state", mu=0.0, sigma=0.3, shape=self.n_states)
+                bias_y_state = pm.Normal("bias_y_state", mu=0.0, sigma=0.3, shape=self.n_states)
+                
+                if verbose:
+                    print(f"[BayesianKinematicHMM] Defined {self.n_states} state-specific parameters")
 
-            # Transition matrix: each row is a Dirichlet distribution
-            # Higher concentration = more likely to stay in same state
-            transition_alpha = pm.Dirichlet(
-                "transition_alpha",
-                a=np.ones(self.n_states) * 2.0,  # Slight preference for staying
-                shape=(self.n_states, self.n_states),
-            )
+                # Transition matrix: each row is a Dirichlet distribution
+                # Higher concentration = more likely to stay in same state
+                transition_alpha = pm.Dirichlet(
+                    "transition_alpha",
+                    a=np.ones(self.n_states) * 2.0,  # Slight preference for staying
+                    shape=(self.n_states, self.n_states),
+                )
 
             # For each sequence, we need to infer the hidden states
             # This is computationally expensive, so we'll use a simpler approach:
@@ -145,17 +202,28 @@ class BayesianKinematicHMM(BayesianMovementModel):
             accel_norm = (a - a.mean()) / (a.std() + 1e-6)
 
             # Logits for state probabilities (simplified - could be more sophisticated)
-            state_logits = pt.zeros((len(df_sorted), self.n_states))
+            # Build logits as a list and stack them
+            if verbose:
+                print(f"[BayesianKinematicHMM] Building state probability model based on speed/accel features...")
+            state_logits_list = []
             for state_idx in range(self.n_states):
                 # Each state has different sensitivities to speed/accel
-                state_logits = pt.set_subtensor(
-                    state_logits[:, state_idx],
+                state_name = self.state_names[state_idx] if state_idx < len(self.state_names) else f"state_{state_idx}"
+                logit = (
                     pm.Normal(f"state_{state_idx}_intercept", mu=0, sigma=1.0)
                     + pm.Normal(f"state_{state_idx}_speed_coef", mu=0, sigma=0.5) * speed_norm
                     + pm.Normal(f"state_{state_idx}_accel_coef", mu=0, sigma=0.5) * accel_norm
                 )
-
-            state_probs = pm.Deterministic("state_probs", pt.softmax(state_logits, axis=1))
+                state_logits_list.append(logit)
+                if verbose:
+                    print(f"  - {state_name}: intercept + speed_coef * speed + accel_coef * accel")
+            
+            # Stack into shape (n_obs, n_states)
+            state_logits = pt.stack(state_logits_list, axis=1)
+            state_probs = pm.Deterministic("state_probs", pm.math.softmax(state_logits, axis=1))
+            
+            if verbose:
+                print(f"[BayesianKinematicHMM] State probabilities computed via softmax over logits")
 
             # For each observation, we have a mixture of states
             # We'll use a continuous relaxation: weighted average of state-specific predictions
@@ -177,6 +245,8 @@ class BayesianKinematicHMM(BayesianMovementModel):
                 sigma_y_weighted += state_prob * sigma_y_state_val
 
             # Likelihood (mixture model)
+            if verbose:
+                print(f"[BayesianKinematicHMM] Setting up likelihood (mixture of {self.n_states} states)...")
             pm.Normal(
                 "x_next",
                 mu=mu_x_weighted,
@@ -190,17 +260,69 @@ class BayesianKinematicHMM(BayesianMovementModel):
                 observed=y_next_obs,
             )
 
-            trace = pm.sample(
-                draws=draws,
-                tune=tune,
-                target_accept=target_accept,
-                chains=chains,
-                return_inferencedata=True,
-                progressbar=True,
-            )
+            # Speedup #3: Use Variational Inference instead of MCMC
+            if use_vi:
+                if verbose:
+                    print(f"[BayesianKinematicHMM] Using Variational Inference (ADVI) with {vi_n} iterations...")
+                    print(f"[BayesianKinematicHMM] This is 10-50x faster than MCMC but less accurate")
+                approx = pm.fit(
+                    method='advi',
+                    n=vi_n,
+                    progressbar=verbose,
+                )
+                if verbose:
+                    print(f"[BayesianKinematicHMM] VI complete, sampling {draws} draws from posterior...")
+                trace_samples = approx.sample(draws=draws)
+                # Convert to InferenceData format
+                import arviz as az
+                # For VI traces, convert to InferenceData
+                try:
+                    trace = az.from_pymc(trace_samples, model=model)
+                except Exception as e:
+                    # Fallback: try without model
+                    if verbose:
+                        print(f"[BayesianKinematicHMM] Warning: Could not convert with model, trying without: {e}")
+                    trace = az.from_pymc(trace_samples)
+                if verbose:
+                    print(f"[BayesianKinematicHMM] VI sampling complete")
+            else:
+                # Standard MCMC sampling (slower but more accurate)
+                if verbose:
+                    print(f"[BayesianKinematicHMM] Starting MCMC sampling...")
+                    print(f"[BayesianKinematicHMM]   - Chains: {chains}")
+                    print(f"[BayesianKinematicHMM]   - Tune: {tune} iterations")
+                    print(f"[BayesianKinematicHMM]   - Draws: {draws} iterations per chain")
+                    print(f"[BayesianKinematicHMM]   - Target accept rate: {target_accept}")
+                    if use_gpu:
+                        print(f"[BayesianKinematicHMM]   - Using GPU (limited benefit for MCMC)")
+                trace = pm.sample(
+                    draws=draws,
+                    tune=tune,
+                    target_accept=target_accept,
+                    chains=chains,
+                    return_inferencedata=True,
+                    progressbar=verbose,
+                )
+                if verbose:
+                    print(f"[BayesianKinematicHMM] MCMC sampling complete")
 
-        self.model = model
-        self.trace = trace
+            self.model = model
+            self.trace = trace
+            
+            if verbose:
+                print(f"[BayesianKinematicHMM] Model fitting complete!")
+                print(f"[BayesianKinematicHMM] Trace contains {len(trace.posterior.data_vars)} variables")
+                if hasattr(trace, 'posterior'):
+                    for var_name in trace.posterior.data_vars:
+                        var_shape = trace.posterior[var_name].shape
+                        print(f"  - {var_name}: shape {var_shape}")
+        except Exception as e:
+            # Ensure trace is None if fitting failed
+            self.trace = None
+            self.model = None
+            if verbose:
+                print(f"[BayesianKinematicHMM] ERROR during model fitting: {e}")
+            raise RuntimeError(f"Failed to fit HMM model: {e}") from e
 
     def posterior_samples_for_rows(
         self,

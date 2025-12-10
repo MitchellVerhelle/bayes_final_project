@@ -3,6 +3,7 @@ import pandas as pd
 import importlib
 from typing import Optional
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 import matplotlib.pyplot as plt
 import matplotlib.animation as anim
@@ -46,6 +47,66 @@ class Artists:
     cone_patches: dict          # pid -> [Ellipse,...]
     mean_markers: dict          # pid -> [Line2D,...]
     legend_handles: list
+
+
+
+def animate_week_play(week, game_id, play_id, interval=120, pre_only=False, pause_time: Optional[float]=False):
+    """
+    pause_time is None or number of seconds to pause.
+    """
+    d_in, d_out = get_din_dout(week, game_id, play_id)
+    frames_pre  = frames_from_input(d_in)
+    frames_post = frames_from_output_merged(d_in, d_out)
+    ball = (d_in.ball_land_x.iloc[0], d_in.ball_land_y.iloc[0])
+
+    if "player_to_predict" in d_in.columns:
+        pos = (
+            d_in.loc[d_in.player_to_predict, "player_position"]
+                .dropna()
+                .unique()
+                .tolist()
+        )
+    else:
+        pos = None
+
+    if pre_only:
+        return animate_pre_play(
+            frames_pre,
+            ball_land=ball,
+            interval=interval,
+            predict_positions=pos,
+        )
+    return animate_full_play(
+        frames_pre,
+        frames_post,
+        ball_land=ball,
+        interval=interval,
+        predict_positions=pos,
+        pause_time=pause_time,
+    )
+
+def get_din_dout(week, game_id, play_id):
+    input_path  = f"train/input_2023_w{week:02d}.csv"
+    output_path = f"train/output_2023_w{week:02d}.csv"
+    inp = pd.read_csv(input_path)
+    outp = pd.read_csv(output_path)
+    return load_play(inp, outp, game_id, play_id)
+
+def test_frame_alignment(week, idx, game_id, play_id):
+    d_in, d_out = get_din_dout(week, game_id, play_id)
+
+    print("Ball land:", d_in.ball_land_x.iloc[idx], d_in.ball_land_y.iloc[idx])
+
+    d_out_trg = d_out.merge(
+        d_in[["nfl_id", "player_role"]].drop_duplicates(), on="nfl_id", how="left"
+    )
+    trg_out = d_out_trg[d_out_trg.player_role == "Targeted Receiver"]
+    trg_last = trg_out[trg_out.frame_id == trg_out.frame_id.max()]
+
+    print("Target last frame x,y:")
+    print(trg_last[["x", "y"]])
+    print(f"Last frame ID: {trg_out.frame_id.max()}")
+    print(f"Plotted ID: {trg_last.frame_id}")
 
 # Data prep helpers
 def _prepare_play_frames(
@@ -241,107 +302,108 @@ def _prepare_viz_data(
 
 # Artist initialization and reset
 def _init_artists(
-    data: PlayVizData,
-    show_paths: bool,
-    show_cones: bool,
-    show_legend: bool,
-    horizon: int,
-) -> Artists:
-    fig, ax = plt.subplots(figsize=(12, 6))
-    draw_field(ax)
+    data,
+    show_paths: bool = True,
+    show_cones: bool = True,
+    show_legend: bool = True,
+    horizon: int = 3,
+    with_prob_ax: bool = False,
+    n_steps: int | None = None,
+):
+    """
+    Set up figure, axes, and Matplotlib artists for the field animation.
 
-    off, = ax.plot([], [], "o", color="orange", label="Offense")
-    targ, = ax.plot([], [], "o", color="red", label="Targeted receiver")
-    deff, = ax.plot([], [], "s", color="blue", label="Defense")
+    If with_prob_ax is True, make a second subplot showing P(success) vs step index.
+    """
 
-    pred_off, = ax.plot([], [], "o", mfc="none", mec="lightblue", mew=1.0, label="Pred Offense")
-    pred_def, = ax.plot([], [], "s", mfc="none", mec="lightblue", mew=1.0, label="Pred Defense")
+    if with_prob_ax:
+        # two rows: field (big) + prob line (small)
+        fig, (ax_field, ax_prob) = plt.subplots(
+            2,
+            1,
+            figsize=(12, 8),
+            gridspec_kw={"height_ratios": [3, 1]},
+        )
+    else:
+        fig, ax_field = plt.subplots(figsize=(12, 6))
+        ax_prob = None
 
-    ball_target, = ax.plot([], [], "x", color="black", markersize=10, label="Ball target")
-    ball_in_air, = ax.plot([], [], "o", mfc="none", mec="black", mew=1.5, label="Ball in air")
+    draw_field(ax_field)
 
-    proxy_path, = ax.plot([], [], "--", color="black", lw=1.5, alpha=0.9, label="Pred path")
+    # main field artists
+    off,  = ax_field.plot([], [], "o", color="orange", label="Offense")
+    targ, = ax_field.plot([], [], "o", color="red",    label="Targeted receiver")
+    deff, = ax_field.plot([], [], "s", color="blue",   label="Defense")
 
-    # paths
+    pred_off, = ax_field.plot(
+        [], [], "o",
+        mfc="none", mec="lightblue", mew=1.0,
+        label="Pred Offense",
+    )
+    pred_def, = ax_field.plot(
+        [], [], "s",
+        mfc="none", mec="lightblue", mew=1.0,
+        label="Pred Defense",
+    )
+
+    ball_target, = ax_field.plot(
+        [], [], "x",
+        color="black", markersize=10,
+        label="Ball target",
+    )
+    ball_in_air, = ax_field.plot(
+        [], [], "o",
+        mfc="none", mec="black", mew=1.5,
+        label="Ball in air",
+    )
+
+    # (optional) legend
+    if show_legend:
+        ax_field.legend(
+            handles=[off, targ, deff, ball_target, ball_in_air],
+            loc="upper right",
+            framealpha=0.8,
+        )
+
+    # optional prediction path artists
     path_lines = []
     if show_paths:
+        # one line per player_to_predict
+        # data.player_ids_to_predict assumed to exist from _prepare_viz_data
         for pid in data.pred_ids:
-            line, = ax.plot(
-                [],
-                [],
-                "--",
-                lw=2.0,
-                alpha=0.9,
-                color="black",
-                label=None,
+            line, = ax_field.plot(
+                [], [], "--",
+                lw=1.0,
+                alpha=0.7,
             )
             path_lines.append((pid, line))
 
-    # cones + mean markers per player
-    cone_patches: dict[int, list[Ellipse]] = {}
-    mean_markers: dict[int, list[plt.Line2D]] = {}
+    # optional Bayesian cones
+    cone_patches = {}
+    mean_markers = {}
+    if show_cones and getattr(data, "use_bayesian_cones", False):
+        # we’ll fill these later in _update_bayesian_cones
+        pass
 
-    if show_cones and data.use_bayesian_cones and data.pred_ids:
-        for pid in data.pred_ids:
-            side = data.side_by_pid.get(pid, "Offense")
-            marker_style = "o" if side == "Offense" else "s"
-            cone_list = []
-            marker_list = []
-            for _ in range(horizon):
-                ell = Ellipse(
-                    xy=(0.0, 0.0),
-                    width=0.0,
-                    height=0.0,
-                    angle=0.0,
-                    facecolor="grey",
-                    edgecolor="black",
-                    linewidth=1.0,
-                    alpha=0.0,
-                    zorder=4,
-                )
-                ax.add_patch(ell)
-                cone_list.append(ell)
+    # probability subplot
+    prob_line = None
+    if with_prob_ax and ax_prob is not None:
+        prob_line, = ax_prob.plot([], [], "-", color="purple", label="P(success)")
+        ax_prob.set_ylim(0.0, 1.0)
+        if n_steps is not None:
+            ax_prob.set_xlim(0, n_steps - 1)
+        ax_prob.set_xlabel("Animation step")
+        ax_prob.set_ylabel("P(success)")
+        ax_prob.grid(True, alpha=0.3)
+        ax_prob.legend(loc="upper left", framealpha=0.8)
 
-                m, = ax.plot(
-                    [],
-                    [],
-                    marker_style,
-                    ms=6,
-                    mfc="none",
-                    mec="black",
-                    alpha=0.0,
-                    zorder=5,
-                    label=None,
-                )
-                marker_list.append(m)
-
-            cone_patches[pid] = cone_list
-            mean_markers[pid] = marker_list
-
-        # label one cone + mean for legend
-        any_pid = data.pred_ids[0]
-        cone_patches[any_pid][0].set_label("95% cone")
-        mean_markers[any_pid][0].set_label("Pred mean")
-
-    # legend
-    legend_handles = [off, targ, deff, ball_target, ball_in_air]
-    if show_paths:
-        legend_handles.append(proxy_path)
-    if show_cones and cone_patches:
-        any_pid = data.pred_ids[0]
-        legend_handles.append(cone_patches[any_pid][0])
-    if show_cones and mean_markers:
-        any_pid = data.pred_ids[0]
-        legend_handles.append(mean_markers[any_pid][0])
-    if show_legend:
-        ax.legend(handles=legend_handles, loc="upper right", framealpha=0.8)
-
-    return Artists(
+    return SimpleNamespace(
         fig=fig,
-        ax=ax,
+        ax=ax_field,
+        ax_prob=ax_prob,
         off=off,
-        targ=targ,
         deff=deff,
+        targ=targ,
         pred_off=pred_off,
         pred_def=pred_def,
         ball_target=ball_target,
@@ -349,9 +411,8 @@ def _init_artists(
         path_lines=path_lines,
         cone_patches=cone_patches,
         mean_markers=mean_markers,
-        legend_handles=legend_handles,
+        prob_line=prob_line,
     )
-
 
 def _reset_prediction_artists(artists: Artists):
     # clear paths
@@ -581,7 +642,8 @@ def visualize_predictions(
     week: int,
     game_id: int,
     play_id: int,
-    horizon: int = 3,
+    p_by_frame: dict[int, float] | None = None,
+    horizon: int = 0,
     interval: int = 120,
     pause_time: Optional[float] = None,
     bayes_samples: int = 200,
@@ -591,14 +653,16 @@ def visualize_predictions(
     cone_pct: float = 0.95,
 ):
     """
-    Animate a play like animate_week_play, plus model predictions AFTER the throw.
+    Animate a play like animate_week_play, plus optional movement predictions.
 
-    Toggles:
-      - show_paths: dashed prediction paths
-      - show_cones: Bayesian 95% cones + mean markers (if model fitted)
-      - show_legend: whether to draw a legend
+    New behavior:
+      - If p_by_frame is provided (mapping step_index -> P(success)),
+        a second subplot is drawn below the field:
+          * x-axis: animation step index (0..T-1)
+          * y-axis: P(success)
+        A vertical dashed line marks the first post-throw step.
     """
-    # --- prep data ---
+    # prep data for field animation
     data = _prepare_viz_data(model, week, game_id, play_id)
     seq, t_seq, ball_xy, qb_throw, pos_labels = _build_sequence(
         data.frames_pre,
@@ -613,16 +677,41 @@ def visualize_predictions(
     data.qb_throw = qb_throw
     data.pos_labels = pos_labels
 
-    # --- init artists ---
+    n_steps = len(data.seq)
+
+    # find first post-throw step index (for vertical line)
+    first_post_idx = None
+    for i, (phase, _) in enumerate(data.seq):
+        if phase == "post":
+            first_post_idx = i
+            break
+
+    # init artists (with prob axis if we have p_by_frame)
     artists = _init_artists(
         data,
         show_paths=show_paths,
         show_cones=show_cones,
         show_legend=show_legend,
         horizon=horizon,
+        with_prob_ax=(p_by_frame is not None),
+        n_steps=n_steps,
     )
 
-    # maintain a predicted_state across post frames
+    # add vertical line for first post-throw step
+    vline = None
+    if p_by_frame is not None and artists.ax_prob is not None and first_post_idx is not None:
+        vline = artists.ax_prob.axvline(
+            first_post_idx,
+            color="gray",
+            linestyle="--",
+            alpha=0.7,
+        )
+
+    # running storage for prob line
+    prob_x: list[int] = []
+    prob_y: list[float] = []
+
+    # maintain a predicted_state across post frames (for movement models)
     predicted_state: pd.DataFrame | None = None
 
     def init():
@@ -634,7 +723,12 @@ def visualize_predictions(
         artists.ball_target.set_data([], [])
         artists.ball_in_air.set_data([], [])
         _reset_prediction_artists(artists)
-        return (
+
+        if artists.prob_line is not None:
+            artists.prob_line.set_data([], [])
+
+        # pack everything that changes into the blit return
+        base_artists = [
             artists.off,
             artists.deff,
             artists.targ,
@@ -642,10 +736,17 @@ def visualize_predictions(
             artists.pred_def,
             artists.ball_target,
             artists.ball_in_air,
-            *(line for _, line in artists.path_lines),
-            *(ell for pid in artists.cone_patches for ell in artists.cone_patches[pid]),
-            *(m for pid in artists.mean_markers for m in artists.mean_markers[pid]),
-        )
+        ]
+        path_artists = [line for _, line in artists.path_lines]
+        cone_artists = [ell for pid in artists.cone_patches for ell in artists.cone_patches[pid]]
+        mean_artists = [m for pid in artists.mean_markers for m in artists.mean_markers[pid]]
+        extra = []
+        if artists.prob_line is not None:
+            extra.append(artists.prob_line)
+        if vline is not None:
+            extra.append(vline)
+
+        return (*base_artists, *path_artists, *cone_artists, *mean_artists, *extra)
 
     def update(i):
         nonlocal predicted_state
@@ -653,23 +754,27 @@ def visualize_predictions(
         phase, d = data.seq[i]
         t = data.t_seq[i]
 
+        # update P(success) line, if provided
+        if p_by_frame is not None and artists.prob_line is not None:
+            if i in p_by_frame:
+                prob_x.append(i)
+                prob_y.append(float(p_by_frame[i]))
+                artists.prob_line.set_data(prob_x, prob_y)
+
+        # field animation (same as before)
         if phase.startswith("pre"):
             _reset_prediction_artists(artists)
             _update_pre_frame(d, data.pos_labels, artists)
         else:
-            # post
             _reset_prediction_artists(artists)
             _update_post_frame_draw_players_and_ball(d, t, data, artists)
 
-            # seed predicted_state on first post frame
             if predicted_state is None:
                 predicted_state = d.copy()
 
-            # paths
             if show_paths:
                 _update_paths_from_rollout(model, predicted_state, artists, horizon=horizon)
 
-            # cones
             if (
                 show_cones
                 and data.use_bayesian_cones
@@ -686,10 +791,9 @@ def visualize_predictions(
                     confidence_pct=cone_pct,
                 )
 
-            # move prediction base forward one actual frame
             predicted_state = d.copy()
 
-        return (
+        base_artists = [
             artists.off,
             artists.deff,
             artists.targ,
@@ -697,78 +801,25 @@ def visualize_predictions(
             artists.pred_def,
             artists.ball_target,
             artists.ball_in_air,
-            *(line for _, line in artists.path_lines),
-            *(ell for pid in artists.cone_patches for ell in artists.cone_patches[pid]),
-            *(m for pid in artists.mean_markers for m in artists.mean_markers[pid]),
-        )
+        ]
+        path_artists = [line for _, line in artists.path_lines]
+        cone_artists = [ell for pid in artists.cone_patches for ell in artists.cone_patches[pid]]
+        mean_artists = [m for pid in artists.mean_markers for m in artists.mean_markers[pid]]
+        extra = []
+        if artists.prob_line is not None:
+            extra.append(artists.prob_line)
+        if vline is not None:
+            extra.append(vline)
+
+        return (*base_artists, *path_artists, *cone_artists, *mean_artists, *extra)
 
     ani = anim.FuncAnimation(
         artists.fig,
         update,
-        frames=len(data.seq),
+        frames=n_steps,
         init_func=init,
         interval=interval,
         blit=True,
     )
     plt.close(artists.fig)
     return ani
-
-
-
-def animate_week_play(week, game_id, play_id, interval=120, pre_only=False, pause_time: Optional[float]=False):
-    """
-    pause_time is None or number of seconds to pause.
-    """
-    d_in, d_out = get_din_dout(week, game_id, play_id)
-    frames_pre  = frames_from_input(d_in)
-    frames_post = frames_from_output_merged(d_in, d_out)
-    ball = (d_in.ball_land_x.iloc[0], d_in.ball_land_y.iloc[0])
-
-    if "player_to_predict" in d_in.columns:
-        pos = (
-            d_in.loc[d_in.player_to_predict, "player_position"]
-                .dropna()
-                .unique()
-                .tolist()
-        )
-    else:
-        pos = None
-
-    if pre_only:
-        return animate_pre_play(
-            frames_pre,
-            ball_land=ball,
-            interval=interval,
-            predict_positions=pos,
-        )
-    return animate_full_play(
-        frames_pre,
-        frames_post,
-        ball_land=ball,
-        interval=interval,
-        predict_positions=pos,
-        pause_time=pause_time,
-    )
-
-def get_din_dout(week, game_id, play_id):
-    input_path  = f"train/input_2023_w{week:02d}.csv"
-    output_path = f"train/output_2023_w{week:02d}.csv"
-    inp = pd.read_csv(input_path)
-    outp = pd.read_csv(output_path)
-    return load_play(inp, outp, game_id, play_id)
-
-def test_frame_alignment(week, idx, game_id, play_id):
-    d_in, d_out = get_din_dout(week, game_id, play_id)
-
-    print("Ball land:", d_in.ball_land_x.iloc[idx], d_in.ball_land_y.iloc[idx])
-
-    d_out_trg = d_out.merge(
-        d_in[["nfl_id", "player_role"]].drop_duplicates(), on="nfl_id", how="left"
-    )
-    trg_out = d_out_trg[d_out_trg.player_role == "Targeted Receiver"]
-    trg_last = trg_out[trg_out.frame_id == trg_out.frame_id.max()]
-
-    print("Target last frame x,y:")
-    print(trg_last[["x", "y"]])
-    print(f"Last frame ID: {trg_out.frame_id.max()}")
-    print(f"Plotted ID: {trg_last.frame_id}")

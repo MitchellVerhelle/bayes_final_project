@@ -38,7 +38,12 @@ Alongside this, we also engineered a "successful_play" flag when the targeted re
    - Global noise scales with position-specific deviations
    - Player-specific noise scales nested within positions
    - Captures that different player types (WR, RB, CB, etc.) may have different movement patterns and predictability
-
+  
+3. **Bayesian Logistic Regression Model** (`PyMC`)
+   - Incorporates seven features/beta coefficients based on player/ball movement
+   - Draws from Bernoulli likelihood distribution for binary outcome
+   - Uses MCMC (NUTS) for posterior sampling
+   - Predicts probability of play being successful (within 0.5 yards of target)
 
 #### Methodology
 

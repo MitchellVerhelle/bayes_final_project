@@ -29,9 +29,16 @@ Alongside this, we also engineered a "successful_play" flag when the targeted re
 
 1. **Bayesian Kinematic Model** (`bayes_kinematic.py`)
    - Extends a deterministic kinematic model (physics-based movement equations) with Bayesian uncertainty
-   - Models noise in x and y directions with HalfNormal priors on sigma_x and sigma_y
-   - Uses MCMC (NUTS) for posterior sampling
+   - Models noise in x and y (sigma_x, sigma_y) with HalfNormal priors (good for modeling standard deviations)
+   - Uses MCMC (NUTS) for posterior sampling (NUTS is like MCMC but more efficiently picks where it samples)
+<img width="963" height="372" alt="output2" src="https://github.com/user-attachments/assets/94e2954c-48d1-4d19-b5b1-35b01bcb2681" />
+<img width="1175" height="497" alt="output3" src="https://github.com/user-attachments/assets/2d402e55-e2ea-49e5-9918-a8e05bb7d43a" />
    - Provides posterior predictive distributions for next-step positions
+<img width="1160" height="499" alt="output" src="https://github.com/user-attachments/assets/06d1b775-c4d4-4b71-87e3-5a057e2c5ddb" />
+
+
+![output](https://github.com/user-attachments/assets/38a71e83-3c11-4a0d-92f1-c4fa8182d08f)
+
 
 2. **Hierarchical Bayesian Kinematic Model** (`bayes_kinematic_hierarchical.py`)
    - Adds hierarchical structure to account for player and position-specific differences

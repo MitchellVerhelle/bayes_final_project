@@ -3,6 +3,7 @@ import pandas as pd
 import importlib
 from typing import Optional
 from dataclasses import dataclass
+import os
 
 import matplotlib.pyplot as plt
 import matplotlib.animation as anim
@@ -783,6 +784,104 @@ def _update_bayesian_heatmaps(
                     artists.heatmap_images[pid][h_step - 1] = None
 
 
+def save_animation(
+    animation: anim.FuncAnimation,
+    save_path: str,
+    fps: Optional[int] = None,
+    dpi: int = 100,
+    bitrate: int = 1800,
+    writer: Optional[str] = None,
+):
+    """
+    Save a matplotlib animation to a file.
+    
+    Args:
+        animation: The FuncAnimation object to save
+        save_path: Output file path. Format is determined by extension:
+                   - .gif -> GIF format (requires pillow or imageio)
+                   - .mp4 -> MP4 format (requires ffmpeg)
+                   - .html -> HTML5 video (requires jsanimation writer)
+        fps: Frames per second (default: calculated from animation interval)
+        dpi: Resolution for raster formats
+        bitrate: Bitrate for video formats (kbps)
+        writer: Override writer (e.g., 'pillow', 'ffmpeg', 'html')
+    
+    Examples:
+        save_animation(ani, "demo.gif")  # Save as GIF
+        save_animation(ani, "demo.mp4", fps=10)  # Save as MP4
+    """
+    # Determine format from extension
+    ext = os.path.splitext(save_path)[1].lower()
+    
+    # Calculate fps from interval if not provided
+    if fps is None:
+        # interval is in milliseconds, convert to fps
+        interval_ms = animation._interval
+        fps = 1000.0 / interval_ms if interval_ms > 0 else 10
+    
+    # Choose writer based on format
+    if writer is None:
+        if ext == '.gif':
+            # Try pillow first, then imageio
+            try:
+                import PIL
+                writer = 'pillow'
+            except ImportError:
+                try:
+                    import imageio
+                    writer = 'imageio'
+                except ImportError:
+                    raise ValueError("GIF saving requires pillow or imageio. Install with: pip install pillow")
+        elif ext == '.mp4':
+            writer = 'ffmpeg'
+        elif ext == '.html':
+            writer = 'html'
+        else:
+            raise ValueError(f"Unknown file format: {ext}. Supported: .gif, .mp4, .html")
+    
+    print(f"Saving animation to {save_path} (format: {ext}, fps: {fps}, writer: {writer})...")
+    
+    try:
+        if ext == '.gif':
+            animation.save(
+                save_path,
+                writer=writer,
+                fps=fps,
+                dpi=dpi,
+            )
+        elif ext == '.mp4':
+            animation.save(
+                save_path,
+                writer=writer,
+                fps=fps,
+                bitrate=bitrate,
+                dpi=dpi,
+            )
+        elif ext == '.html':
+            # HTML5 video format
+            animation.save(
+                save_path,
+                writer='html',
+                fps=fps,
+            )
+        else:
+            # Try generic save
+            animation.save(save_path, writer=writer, fps=fps, dpi=dpi)
+        
+        print(f"✓ Animation saved successfully to {save_path}")
+        file_size = os.path.getsize(save_path) / (1024 * 1024)  # MB
+        print(f"  File size: {file_size:.2f} MB")
+        
+    except Exception as e:
+        print(f"✗ Error saving animation: {e}")
+        if writer == 'ffmpeg':
+            print("  Note: MP4 saving requires ffmpeg. Install with:")
+            print("    - Windows: Download from https://ffmpeg.org/download.html")
+            print("    - Mac: brew install ffmpeg")
+            print("    - Linux: sudo apt-get install ffmpeg")
+        raise
+
+
 # visualize predictions
 def visualize_predictions(
     model,
@@ -801,6 +900,8 @@ def visualize_predictions(
     heatmap_alpha: float = 0.8,              # ### MOD: default higher
     heatmap_grid_resolution: int = 50,
     heatmap_bandwidth: float = 0.5,
+    save_path: Optional[str] = None,
+    save_fps: Optional[int] = None,
 ):
     """
     Animate a play like animate_week_play, plus model predictions AFTER the throw.
@@ -944,8 +1045,15 @@ def visualize_predictions(
         interval=interval,
         blit=True,
     )
-    plt.close(artists.fig)
-    return ani
+    
+    # Save animation if path provided
+    if save_path:
+        save_animation(ani, save_path, fps=save_fps)
+        plt.close(artists.fig)
+        return ani
+    else:
+        plt.close(artists.fig)
+        return ani
 
 
 

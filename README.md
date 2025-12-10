@@ -28,7 +28,6 @@ Alongside this, we also engineered a "successful_play" flag when the targeted re
 #### Models Implemented
 
 1. **Bayesian Kinematic Model** (`bayes_kinematic.py`)
-![output](https://github.com/user-attachments/assets/38a71e83-3c11-4a0d-92f1-c4fa8182d08f)
    - Extends a deterministic kinematic model (physics-based movement equations) with Bayesian uncertainty
    - Models noise in x and y (sigma_x, sigma_y) with HalfNormal priors (good for modeling standard deviations)
    - Uses MCMC (NUTS) for posterior sampling (NUTS is like MCMC but more efficiently picks where it samples)
@@ -60,4 +59,27 @@ Alongside this, we also engineered a "successful_play" flag when the targeted re
 #### Results
 
 We developed a method to visualize both the kinematic components and the successful play results, seen in the demos provided in the repository.
+
+Example with `BayesianKinematicModel`
+![output](https://github.com/user-attachments/assets/38a71e83-3c11-4a0d-92f1-c4fa8182d08f)
+
+Example with `BayesianPlaySuccessModel` (in mitch_branch)
+
+https://github.com/user-attachments/assets/7159380c-a971-485b-abae-a77b06273e71
+
+https://github.com/user-attachments/assets/94016daa-61c6-43c1-a390-71c0b0ff2d10
+
+Betas
+- `tackle_range`
+<img width="690" height="390" alt="tackle_range vs p_success" src="https://github.com/user-attachments/assets/5cc2f870-a246-4dd1-b8ce-2db2fdbfb08a" />
+<img width="661" height="152" alt="beta tackle_range" src="https://github.com/user-attachments/assets/2e40b5ad-2540-4d1a-8a5d-857b511e3656" />
+
+- `dist_to_nearest_defender`
+<img width="689" height="390" alt="dist_to_nearest_defender" src="https://github.com/user-attachments/assets/443d86e7-d87e-4b46-b2c3-4a86afcf6843" />
+<img width="661" height="152" alt="beta dist_to_nearest_defender" src="https://github.com/user-attachments/assets/b7a20d2e-d0ce-42fa-af49-3173ed6af548" />
+
+- `dist_to_target_land`
+<img width="690" height="390" alt="dist_to_target_land vs p_success" src="https://github.com/user-attachments/assets/a451b9d9-9ddb-42d1-a6f4-fbeffe57a446" />
+<img width="661" height="153" alt="beta dist_to_target_land" src="https://github.com/user-attachments/assets/5c53886b-0199-4341-b3dd-57899041571c" />
+
 

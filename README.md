@@ -74,6 +74,63 @@ https://www.kaggle.com/competitions/nfl-big-data-bowl-2026-prediction/data
 #### Models Implemented
 
 1. **Bayesian Kinematic Model** (`bayes_kinematic.py`)
+
+Position updates:
+
+\[
+x_{t+\Delta t} = x_t 
+    + s_t \cos(\theta_t)\,\Delta t 
+    + \tfrac{1}{2} a_t \cos(\theta_t)\,\Delta t^2
+\]
+
+\[
+y_{t+\Delta t} = y_t 
+    + s_t \sin(\theta_t)\,\Delta t 
+    + \tfrac{1}{2} a_t \sin(\theta_t)\,\Delta t^2
+\]
+
+Observed next-step positions are modeled as Gaussian noise around the deterministic means:
+
+\[
+x_{\text{next}} \sim \mathcal{N}(\mu_x, \sigma_x)
+\]
+
+\[
+y_{\text{next}} \sim \mathcal{N}(\mu_y, \sigma_y)
+\]
+
+Priors on noise:
+
+\[
+\sigma_x \sim \text{HalfNormal}(1.0)
+\]
+
+\[
+\sigma_y \sim \text{HalfNormal}(1.0)
+\]
+
+This means we expect 0-1+ yards of noise, but very small amount of noise, on a weak prior.
+
+Posterior Inference. Samples from the joint posterior:
+
+\[
+p(\sigma_x, \sigma_y \mid x_{\text{next}}, y_{\text{next}}, \mu_x, \mu_y)
+\]
+
+This is how we pick sigma_x and sigma_y for the next step.
+
+Posterior Predictive Distribution. Future movement samples are drawn as:
+
+\[
+x^\*(t+\Delta t) \sim \mathcal{N}(\mu_x, \sigma_x)
+\]
+
+\[
+y^\*(t+\Delta t) \sim \mathcal{N}(\mu_y, \sigma_y)
+\]
+
+So we use the drawn \(\sigma_x\) and \(\sigma_y\) to pull our next predicted frame. Then we roll out more than 1 frame of prediction to get a stronger idea of where the player will move next.
+
    - Extends a deterministic kinematic model (physics-based movement equations) with Bayesian uncertainty
    - Models noise in x and y (sigma_x, sigma_y) with HalfNormal priors (good for modeling standard deviations)
    - Uses MCMC (NUTS) for posterior sampling (NUTS is like MCMC but more efficiently picks where it samples)
@@ -119,7 +176,7 @@ With this, we developed a heatmap visualization method to visualize how players 
    see demo.html for more!
    
   
-4. **Bayesian Logistic Regression Model** (`PyMC`)
+3. **Bayesian Logistic Regression Model** (`PyMC`)
    - Incorporates seven features/beta coefficients based on player/ball movement
    - Draws from Bernoulli likelihood distribution for binary outcome
    - Uses MCMC (NUTS) for posterior sampling

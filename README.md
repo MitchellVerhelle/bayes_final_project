@@ -25,8 +25,11 @@ The NFL Big Data Bowl is an annual challenge hosted by the NFL that aims to exam
 Alongside this, we also engineered a "successful_play" flag when the targeted receiver ended up within a meter's distance of the ball. This was used in predicting successful plays from previous player movements.
 
 **Files**
+
 train/
-   input_2023_w[01-18].csv
+
+input_2023_w[01-18].csv
+
 The input data contains tracking data before the pass is thrown
 
 - `game_id`: Game identifier, unique (numeric)
@@ -53,7 +56,8 @@ The input data contains tracking data before the pass is thrown
 - `ball_land_x`: Ball landing position position along the long axis of the field, generally within 0 - 120 yards. (numeric)
 - `ball_land_y`: Ball landing position along the short axis of the field, generally within 0 - 53.3 yards. (numeric)
 
-   output_2023_w[01-18].csv
+output_2023_w[01-18].csv
+
 The output data contains tracking data after the pass is thrown.
 
 - `game_id`: Game identifier, unique (numeric)

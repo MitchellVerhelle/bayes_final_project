@@ -28,16 +28,13 @@ def fit_model_up_to_week(
     dir_col: str = "dir",
     **fit_kwargs,
 ) -> MovementModel:
-    """
-    Train (or fit_bayes) a MovementModel using weeks 1..max_train_week.
-    """
+    """ Train (or fit_bayes) a MovementModel using weeks 1..max_train_week. """
     train_weeks = list(range(1, max_train_week + 1))
     print(f"[fit_model_up_to_week] Training on weeks: {train_weeks}")
 
     train_df = build_step_df(train_weeks, source=source)
 
-    print(f"[fit_model_up_to_week] Fitting model '{model.name}' on "
-          f"{len(train_df):,} rows...")
+    print(f"[fit_model_up_to_week] Fitting model '{model.name}' on {len(train_df):,} rows...")
     model.fit(
         train_df,
         x_col=x_col,
@@ -65,24 +62,14 @@ def train_eval_until_week(
     dir_col: str = "dir",
     **fit_kwargs,
 ) -> Tuple[MovementModel, Dict[str, float]]:
-    """
-    Convenience wrapper around train_eval_model using weeks 1..max_train_week
-    for training, and user-specified test_weeks (default: [max_train_week]).
-
-    Example:
-        train_eval_until_week(model, 3, test_weeks=[4,5])
-
-    This works for both deterministic and Bayesian models.
-    """
+    """ Convenience wrapper around train_eval_model using weeks 1..max_train_week for training, and user-specified test_weeks. """
     train_weeks = weeks_up_to(max_train_week)
     if test_weeks is None:
         test_weeks = [max_train_week]
 
-    # build data
     train_df = build_step_df(train_weeks, source=source)
     test_df = build_step_df(test_weeks, source=source)
 
-    # fit (handles Bayesian via overridden fit)
     model.fit(
         train_df,
         x_col=x_col,
@@ -95,7 +82,6 @@ def train_eval_until_week(
         **fit_kwargs,
     )
 
-    # predict on test
     test_pred = model.predict_dataframe(
         test_df,
         x_col=x_col,

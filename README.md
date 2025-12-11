@@ -173,6 +173,10 @@ With this, we developed a heatmap visualization method to visualize how players 
       
       4. Visual tweaking: emphasize high-density regions and overlays heatmaps at t+1, t+2, and t+3 on field.
 
+
+![alt text](https://github.com/MitchellVerhelle/bayes_final_project/blob/main/demo_frames/frame0000037.png "Post Snap Frame")
+
+
    see demo.html for more!
    
   

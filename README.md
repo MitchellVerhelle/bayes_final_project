@@ -177,6 +177,7 @@ Here we use the learned $\sigma_x$ and $\sigma_y$ (from the posterior) together 
    - Provides posterior predictive distributions for next-step positions
 <img width="1160" height="499" alt="output" src="https://github.com/user-attachments/assets/06d1b775-c4d4-4b71-87e3-5a057e2c5ddb" />
 
+RMSE: .54 for Bayesian Kinematic and .537 for Deterministic Kinematic Models.
 
 2. **Hierarchical Bayesian Kinematic Model** (`bayes_kinematic_hierarchical.py`)
    - Adds hierarchical structure to account for player and position-specific differences

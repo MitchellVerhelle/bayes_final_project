@@ -1,4 +1,4 @@
-"""Bayesian extension of the kinematic model for player movement.
+"""Bayesian kinematic model explanation:
 
 Input:
     - position:        (x, y)_t              (yard, yard)
@@ -36,11 +36,6 @@ Algorithm:
                     E[x_pred], E[y_pred]
               - Or generate full posterior predictive samples via
                 posterior_samples_for_rows for uncertainty quantification.
-
-Notes:
-    - The deterministic kinematic model acts as the mean function.
-    - The Bayesian layer models deviations from idealized physics using
-      learned noise scales.
 """
 
 from __future__ import annotations
@@ -78,20 +73,11 @@ class BayesianKinematicModel(BayesianMovementModel):
         tune: int = 1000,
         target_accept: float = 0.9,
         chains: int = 2,
-        # Speedup options
-        max_samples: Optional[int] = None,  # Subsample data for faster training
-        use_vi: bool = False,  # Use Variational Inference instead of MCMC (much faster)
-        vi_n: int = 10000,  # Number of VI iterations if use_vi=True
+        max_samples: Optional[int] = None,
+        use_vi: bool = False,
+        vi_n: int = 10000,
     ) -> None:
-        """
-        Fit the Bayesian kinematic model on a step-level dataset.
-        
-        Args:
-            max_samples: If set, randomly subsample this many rows for faster training
-            use_vi: If True, use Variational Inference (ADVI) instead of MCMC (much faster, less accurate)
-            vi_n: Number of iterations for VI if use_vi=True
-        """
-        # Subsample data if requested (speedup #1)
+        """ Fit model on a step-level dataset. """
         if max_samples is not None and len(df) > max_samples:
             print(f"[BayesianKinematicModel] Subsampling from {len(df):,} to {max_samples:,} rows for faster training")
             df = df.sample(n=max_samples, random_state=42).reset_index(drop=True)
@@ -114,7 +100,7 @@ class BayesianKinematicModel(BayesianMovementModel):
             pm.Normal("x_next", mu=mu_x, sigma=sigma_x, observed=x_next_obs)
             pm.Normal("y_next", mu=mu_y, sigma=sigma_y, observed=y_next_obs)
 
-            # Speedup #3: Use Variational Inference instead of MCMC
+            # Variational Inference instead of MCMC if flagged
             if use_vi:
                 print(f"[BayesianKinematicModel] Using Variational Inference (ADVI) with {vi_n} iterations...")
                 approx = pm.fit(
@@ -123,19 +109,15 @@ class BayesianKinematicModel(BayesianMovementModel):
                     progressbar=True,
                 )
                 trace_samples = approx.sample(draws=draws)
-                # Convert to InferenceData format
-                # For VI traces, use convert_to_inference_data
                 try:
                     trace = az.convert_to_inference_data(trace_samples)
                 except (AttributeError, TypeError):
-                    # Fallback: try from_pymc if available
                     try:
                         trace = az.from_pymc(trace_samples)
                     except AttributeError:
-                        # Last resort: wrap in InferenceData manually
                         trace = az.convert_to_inference_data(trace_samples, group="posterior")
             else:
-                # Standard MCMC sampling (slower but more accurate)
+                # MCMC sampling
                 trace = pm.sample(
                     draws=draws,
                     tune=tune,
@@ -158,12 +140,7 @@ class BayesianKinematicModel(BayesianMovementModel):
         a_col: str = "a",
         dir_col: str = "dir",
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Generate posterior samples for next-step positions for each row.
-
-        Uses the deterministic kinematic mean plus Gaussian noise with
-        sigma_x, sigma_y taken from the fitted posterior.
-        """
+        """ Uses the deterministic kinematic mean plus Gaussian noise with sigma_x, sigma_y taken from the fitted posterior. """
         if self.trace is None or self.model is None:
             raise RuntimeError("Call fit_bayes(...) before posterior sampling.")
 

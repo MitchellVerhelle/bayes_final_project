@@ -77,59 +77,97 @@ https://www.kaggle.com/competitions/nfl-big-data-bowl-2026-prediction/data
 
 Position updates:
 
-\[
+$$
 x_{t+\Delta t} = x_t 
     + s_t \cos(\theta_t)\,\Delta t 
     + \tfrac{1}{2} a_t \cos(\theta_t)\,\Delta t^2
-\]
+$$
 
-\[
+$$
 y_{t+\Delta t} = y_t 
     + s_t \sin(\theta_t)\,\Delta t 
     + \tfrac{1}{2} a_t \sin(\theta_t)\,\Delta t^2
-\]
+$$
 
 Observed next-step positions are modeled as Gaussian noise around the deterministic means:
 
-\[
+$$
 x_{\text{next}} \sim \mathcal{N}(\mu_x, \sigma_x)
-\]
+$$
 
-\[
+$$
 y_{\text{next}} \sim \mathcal{N}(\mu_y, \sigma_y)
-\]
+$$
 
 Priors on noise:
 
-\[
-\sigma_x \sim \text{HalfNormal}(1.0)
-\]
-
-\[
-\sigma_y \sim \text{HalfNormal}(1.0)
-\]
+```pyhton
+with pm.Model() as model:
+    sigma_x = pm.HalfNormal("sigma_x", sigma=1.0)
+    sigma_y = pm.HalfNormal("sigma_y", sigma=1.0)
+```
 
 This means we expect 0-1+ yards of noise, but very small amount of noise, on a weak prior.
 
 Posterior Inference. Samples from the joint posterior:
 
-\[
+$$
 p(\sigma_x, \sigma_y \mid x_{\text{next}}, y_{\text{next}}, \mu_x, \mu_y)
-\]
+$$
 
-This is how we pick sigma_x and sigma_y for the next step.
+```pyhton
+with pm.Model() as model:
+    sigma_x = pm.HalfNormal("sigma_x", sigma=1.0)
+    sigma_y = pm.HalfNormal("sigma_y", sigma=1.0)
+
+    pm.Normal("x_next", mu=mu_x, sigma=sigma_x, observed=x_next_obs)
+    pm.Normal("y_next", mu=mu_y, sigma=sigma_y, observed=y_next_obs)
+
+    trace = pm.sample(
+        draws=draws,
+        tune=tune,
+        target_accept=target_accept,
+        chains=chains,
+        return_inferencedata=True,
+    )
+```
+
+This learns the posterior distributions of $\sigma_x$ and $\sigma_y$ from the data. We use the posterior means of $\sigma_x$ and $\sigma_y$ as the learned noise scales when sampling.
 
 Posterior Predictive Distribution. Future movement samples are drawn as:
 
-\[
+$$
 x^\*(t+\Delta t) \sim \mathcal{N}(\mu_x, \sigma_x)
-\]
+$$
 
-\[
+$$
 y^\*(t+\Delta t) \sim \mathcal{N}(\mu_y, \sigma_y)
-\]
+$$
 
-So we use the drawn \(\sigma_x\) and \(\sigma_y\) to pull our next predicted frame. Then we roll out more than 1 frame of prediction to get a stronger idea of where the player will move next.
+```pyhton
+def posterior_samples_for_rows(self, df, n_samples=100):
+    # 1) Compute deterministic means from the kinematic model
+    mu_x, mu_y = self.base._step_array(
+        df["x"].to_numpy(float),
+        df["y"].to_numpy(float),
+        df["s"].to_numpy(float),
+        df["a"].to_numpy(float),
+        df["dir"].to_numpy(float),
+    )
+
+    # 2) Use posterior means of sigma_x, sigma_y as learned noise scales
+    sigma_x = float(self.trace.posterior["sigma_x"].mean())
+    sigma_y = float(self.trace.posterior["sigma_y"].mean())
+
+    n_rows = len(df)
+
+    # 3) Sample future positions around the deterministic means
+    x_samps = np.random.normal(mu_x, sigma_x, size=(n_samples, n_rows))
+    y_samps = np.random.normal(mu_y, sigma_y, size=(n_samples, n_rows))
+    return x_samps, y_samps
+```
+
+Here we use the learned $\sigma_x$ and $\sigma_y$ (from the posterior) together with the ($\mu_x$, $\mu_y$) to sample possible next-frame predictions. Then by rolling out more predictive frames, we are able to get a probabilistic picture of where the player is going to move next.
 
    - Extends a deterministic kinematic model (physics-based movement equations) with Bayesian uncertainty
    - Models noise in x and y (sigma_x, sigma_y) with HalfNormal priors (good for modeling standard deviations)

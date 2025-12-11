@@ -1,4 +1,4 @@
-"""Baseline kinematic model for player movement.
+"""KinematicModel:
 
 Input:
     - position:     (x, y)_t         (yard, yard)
@@ -22,11 +22,6 @@ Algorithm:
     - Step 4: Return updated position:
                 x_{t+dt} = x_t + dx
                 y_{t+dt} = y_t + dy
-
-Notes:
-    - This is a purely deterministic physics-based baseline.
-    - No learning occurs; the model contains no trained parameters.
-    - Used both as a benchmark and as a mean function for future Bayesian models.
 """
 
 from __future__ import annotations
@@ -41,11 +36,11 @@ from .model_base import MovementModel
 
 class KinematicModel(MovementModel):
     """
-    Baseline kinematic model for player movement.
+    Baseline deterministic kinematic model
 
     Given position (x, y), speed s (yards/sec), acceleration a (yards/sec^2),
     and movement direction dir (degrees), predict next-step (x, y) assuming
-    motion in a straight line over a fixed time step dt = 1 / fps.
+    motion in a straight line over a fixed time step dt = 1 / fps
     """
 
     def __init__(self, fps: float = 10.0, use_accel: bool = True, name: Optional[str] = None):
@@ -104,11 +99,8 @@ class KinematicModel(MovementModel):
         out_y_col: str = "y_pred",
     ) -> pd.DataFrame:
         """
-        Predict next-step positions for every row in df.
-
         df is expected to contain columns:
             x_col, y_col, s_col, a_col, dir_col
-        as in the NFL Big Data Bowl tracking input.
         """
         x = df[x_col].to_numpy(dtype=float)
         y = df[y_col].to_numpy(dtype=float)
@@ -129,7 +121,5 @@ class KinematicModel(MovementModel):
         horizon: int,
         **kwargs,
     ) -> pd.DataFrame:
-        """
-        Convenience wrapper around MovementModel.rollout_horizon.
-        """
+        """ Convenience wrapper around MovementModel.rollout_horizon. (For when you want to predict more than one next steps.) """
         return self.rollout_horizon(df, horizon=horizon, **kwargs)

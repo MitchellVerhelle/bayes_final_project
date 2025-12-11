@@ -378,21 +378,21 @@ def _init_artists(
 
 
 def _reset_prediction_artists(artists: Artists):
-    # clear paths
+    # paths
     for _, line in artists.path_lines:
         line.set_data([], [])
-    # clear cones
+    # cones
     for pid in artists.cone_patches:
         for ell in artists.cone_patches[pid]:
             ell.set_alpha(0.0)
             ell.width = 0.0
             ell.height = 0.0
-    # clear mean markers
+    # mean markers
     for pid in artists.mean_markers:
         for m in artists.mean_markers[pid]:
             m.set_data([], [])
             m.set_alpha(0.0)
-    # clear heatmaps ### MOD: guard against None
+    # heatmaps
     for pid in artists.heatmap_images:
         for img in artists.heatmap_images[pid]:
             if img is not None:
@@ -625,8 +625,7 @@ def _create_heatmap_from_samples(
         (y_samples >= 0) & (y_samples <= 53.3)
     )
     
-    # ### MOD: lower threshold so we see maps more often
-    if valid.sum() < 5:  # was 10
+    if valid.sum() < 5: # 10
         return None
     
     x_valid = x_samples[valid]
@@ -651,14 +650,12 @@ def _create_heatmap_from_samples(
         # Normalize to [0,1]
         density = (density - density_min) / (density_max - density_min)
         
-        # ### MOD: make high-density regions pop using gamma transform
-        gamma = 0.6  # <1 -> boosts bright regions
+        gamma = 0.6
         density = np.power(density, gamma)
         
-        # ### MOD: lower thresholds so more of the blob is visible
-        threshold = 0.02  # was 0.05
+        threshold = 0.02
         density = np.maximum(density - threshold, 0) / (1 - threshold)
-        density = np.ma.masked_where(density < 0.005, density)  # was 0.01
+        density = np.ma.masked_where(density < 0.005, density)
         
     except Exception as e:
         print(f"Warning: KDE failed for heatmap: {e}")
@@ -666,10 +663,9 @@ def _create_heatmap_from_samples(
     
     from matplotlib.colors import LinearSegmentedColormap
     
-    # ### MOD: brighter, non-black colormap with transparent low end
     hot_cmap = plt.cm.get_cmap('hot')
-    colors = hot_cmap(np.linspace(0.15, 1.0, 256))  # start from >0 to avoid dark/black
-    colors[0, 3] = 0.0  # first entry fully transparent
+    colors = hot_cmap(np.linspace(0.15, 1.0, 256)) # start from >0 to avoid dark/black
+    colors[0, 3] = 0.0 # first entry fully transparent
     custom_cmap = LinearSegmentedColormap.from_list('hot_transparent', colors)
     
     img = ax.imshow(
@@ -752,8 +748,7 @@ def _update_bayesian_heatmaps(
                     old_img = artists.heatmap_images[pid][h_step - 1]
                     old_img.remove()
             
-                # ### MOD: keep heatmaps fairly bright across horizon
-                fade_factor = 0.5 + 0.5 * (1.0 - (h_step - 1) / max_h)  # in [0.5,1.0]
+                fade_factor = 0.5 + 0.5 * (1.0 - (h_step - 1) / max_h) # [0.5,1.0]
                 step_alpha = heatmap_alpha * fade_factor
                 
                 img = _create_heatmap_from_samples(
@@ -792,24 +787,7 @@ def save_animation(
     bitrate: int = 1800,
     writer: Optional[str] = None,
 ):
-    """
-    Save a matplotlib animation to a file.
-    
-    Args:
-        animation: The FuncAnimation object to save
-        save_path: Output file path. Format is determined by extension:
-                   - .gif -> GIF format (requires pillow or imageio)
-                   - .mp4 -> MP4 format (requires ffmpeg)
-                   - .html -> HTML5 video (requires jsanimation writer)
-        fps: Frames per second (default: calculated from animation interval)
-        dpi: Resolution for raster formats
-        bitrate: Bitrate for video formats (kbps)
-        writer: Override writer (e.g., 'pillow', 'ffmpeg', 'html')
-    
-    Examples:
-        save_animation(ani, "demo.gif")  # Save as GIF
-        save_animation(ani, "demo.mp4", fps=10)  # Save as MP4
-    """
+    """ Save a matplotlib animation to a file. """
     # Determine format from extension
     ext = os.path.splitext(save_path)[1].lower()
     
@@ -897,16 +875,14 @@ def visualize_predictions(
     show_legend: bool = True,
     cone_pct: float = 0.95,
     show_heatmaps: bool = False,
-    heatmap_alpha: float = 0.8,              # ### MOD: default higher
+    heatmap_alpha: float = 0.8,
     heatmap_grid_resolution: int = 50,
     heatmap_bandwidth: float = 0.5,
     save_path: Optional[str] = None,
     save_fps: Optional[int] = None,
 ):
     """
-    Animate a play like animate_week_play, plus model predictions AFTER the throw.
-
-    Toggles:
+    Animate a play like animate_week_play, plus model predictions after the throw.
       - show_paths: dashed prediction paths
       - show_cones: Bayesian 95% cones + mean markers (if model fitted)
       - show_legend: whether to draw a legend

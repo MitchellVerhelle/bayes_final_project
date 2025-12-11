@@ -97,17 +97,23 @@ https://www.kaggle.com/competitions/nfl-big-data-bowl-2026-prediction/data
     
      Starting from 2, we can apply a unique set of position-specific parameters for each unique position:
 
-     `σ_x_pos[i] ~ Normal(σ_x_global, 0.3)  # Position noise centered at global
+     ```
+     σ_x_pos[i] ~ Normal(σ_x_global, 0.3)  # Position noise centered at global
       σ_y_pos[i] ~ Normal(σ_y_global, 0.3)
       
       bias_x_pos[i] ~ Normal(0, 0.2)  # Position-specific systematic biases
-      bias_y_pos[i] ~ Normal(0, 0.2)`
+      bias_y_pos[i] ~ Normal(0, 0.2)
+     ```
   
 With this, we developed a heatmap visualization method to visualize how players could move in a given play. The heatmap visualization methodology is as follows:
+
       1. Posterior sampling: For each of the players at time step t after the snap, generate a number of posterior samples (compute deterministic mean from kinematic (μ_x, μ_y), 
       sample from Normal(μ_x, σ_x) and Normal(μ_y, σ_y) using learned noise scales)
+      
       2. Sample validation: Filters samples to valid field coordinates (0 ≤ x ≤ 120, 0 ≤ y ≤ 53.3) to ensure that the potential movements are at least on the football field (no teleporting for our players...)
+      
       3. KDE density estimation: Creates a grid on the football field and computes probability density at each grid point based on the above samples
+      
       4. Visual tweaking: emphasize high-density regions and overlays heatmaps at t+1, t+2, and t+3 on field.
 
    see demo.html for more!

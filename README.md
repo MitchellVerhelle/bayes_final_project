@@ -12,6 +12,8 @@ Mitch Verhelle, Claire Fenton, Richard Huang
 
 #### Project
 
+https://www.kaggle.com/competitions/nfl-big-data-bowl-2026-prediction/overview
+
 This project implements Bayesian models for predicting NFL player movement using tracking data from the 2023 season. The goal is to predict the next-step position of players given their current kinematic state (position, speed, acceleration, direction) as well as predict whether or not the play was successful (i.e. the receiver caught the ball). The data and foundation for this project is from the NFL Big Data Bowl 2026 hosted on Kaggle. 
 
 #### Overview
@@ -67,6 +69,7 @@ The output data contains tracking data after the pass is thrown.
 - `x`: Player position along the long axis of the field, generally within 0-120 yards. (TARGET TO PREDICT)
 - `y`: Player position along the short axis of the field, generally within 0 - 53.3 yards. (TARGET TO PREDICT)
 
+https://www.kaggle.com/competitions/nfl-big-data-bowl-2026-prediction/data
 
 #### Models Implemented
 

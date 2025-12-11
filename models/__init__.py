@@ -11,7 +11,7 @@ from .bayes_kinematic import BayesianKinematicModel
 from .bayes_kinematic_hierarchical import HierarchicalBayesianKinematicModel
 from .bayes_kinematic_hmm import BayesianKinematicHMM
 
-# train and test pipeline
+# train and test pipeline, feature engineering helpers, and data formatting helpers for visualization tools
 from .pipeline import (
     build_step_df,
     build_step_df_from_input,

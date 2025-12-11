@@ -215,8 +215,6 @@ With this, we developed a heatmap visualization method to visualize how players 
 
    see demo.html for more!
 
-
-![hippo](https://s4.ezgif.com/tmp/ezgif-4df1c58bd6f68885.gif)
    
   
 3. **Bayesian Logistic Regression Model** (`PyMC`)
@@ -238,6 +236,10 @@ We developed a method to visualize both the kinematic components and the success
 
 Example with `BayesianKinematicModel`
 ![output](https://github.com/user-attachments/assets/38a71e83-3c11-4a0d-92f1-c4fa8182d08f)
+
+
+Example with `HierarchicalBayesianKinematicModel` with heatmap visualization
+![hippo](https://s4.ezgif.com/tmp/ezgif-4df1c58bd6f68885.gif)
 
 Example with `BayesianPlaySuccessModel` (in mitch_branch)
 

@@ -214,6 +214,9 @@ With this, we developed a heatmap visualization method to visualize how players 
 
 
    see demo.html for more!
+
+
+![hippo](https://s4.ezgif.com/tmp/ezgif-4df1c58bd6f68885.gif)
    
   
 3. **Bayesian Logistic Regression Model** (`PyMC`)

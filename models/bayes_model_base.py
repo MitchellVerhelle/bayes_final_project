@@ -50,7 +50,6 @@ class BayesianMovementModel(MovementModel, ABC):
         self.trace: Any = None
         self.model: Any = None
 
-    # NEW: hook into generic pipeline
     def fit(
         self,
         df: pd.DataFrame,
@@ -63,12 +62,7 @@ class BayesianMovementModel(MovementModel, ABC):
         y_next_col: str = "y_next",
         **kwargs: Any,
     ) -> None:
-        """
-        Generic fit hook for MovementModel-based pipelines.
-
-        Just forwards to fit_bayes with reasonable defaults so that
-        tools.pipeline.train_eval_model(...) works for Bayesian models too.
-        """
+        """ Forward to fit_bayes """
         return self.fit_bayes(
             df,
             x_col=x_col,
@@ -122,15 +116,8 @@ class BayesianMovementModel(MovementModel, ABC):
         dir_col: str = "dir",
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Generate posterior samples for next-step positions for each row.
-
-        df is typically a subset of a step-level dataset (e.g., all rows
-        for one frame, or a single player at a single frame).
-
         Returns:
-            (x_samples, y_samples), each with shape (n_samples, n_rows),
-            where each column corresponds to the posterior samples for
-            a particular row in df.
+            (x_samples, y_samples), each with shape (n_samples, n_rows)
         """
         ...
 
@@ -147,15 +134,7 @@ class BayesianMovementModel(MovementModel, ABC):
         summary: str = "mean",
         n_samples: int = 200,
     ) -> pd.DataFrame:
-        """
-        Compute posterior predictive summaries for each row.
-
-        By default, returns posterior means or medians in x_pred, y_pred.
-        The returned DataFrame preserves id columns such as:
-            game_id, play_id, nfl_id, frame_id
-        so predictions can be fed directly into visualization or formatted
-        into competition-style output.
-        """
+        """ Returns posterior means or medians in x_pred, y_pred. """
         x_samps, y_samps = self.posterior_samples_for_rows(
             df, n_samples=n_samples,
             x_col=x_col, y_col=y_col, s_col=s_col, a_col=a_col, dir_col=dir_col,
@@ -175,7 +154,7 @@ class BayesianMovementModel(MovementModel, ABC):
         out[out_y_col] = y_summary
         return out
 
-    # --- Visualization helpers for real-time posterior integration ---
+# visualization helpers
 
     def init_posterior_artists(
         self,
@@ -226,12 +205,10 @@ class BayesianMovementModel(MovementModel, ABC):
         samples_artist = artists["samples"]
         mean_artist = artists["mean"]
 
-        # x_samples, y_samples: 1D arrays of posterior draws for a single point
         samples_artist.set_data(x_samples, y_samples)
 
         mx = float(np.mean(x_samples))
         my = float(np.mean(y_samples))
-        # set_data expects sequences, so wrap scalars in 1-element lists
         mean_artist.set_data([mx], [my])
 
         return samples_artist, mean_artist
